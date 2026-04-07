@@ -1,87 +1,53 @@
 import os
-import yt_dlp
-from flask import Flask
-from threading import Thread
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from downloader import download_video
+from keep_alive import keep_alive
 
-# =========================
-# TELEGRAM BOT TOKEN
-# =========================
-BOT_TOKEN = "8237446590:AAFUWWuMiPGmuAnK0n3oYxDzNlO08hqKPp0"
+BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
 
-DOWNLOAD_FOLDER = "downloads"
 
-if not os.path.exists(DOWNLOAD_FOLDER):
-    os.makedirs(DOWNLOAD_FOLDER)
-
-# =========================
-# KEEP BOT ALIVE FOR RENDER
-# =========================
-app_web = Flask('')
-
-@app_web.route('/')
-def home():
-    return "🤖 Bot is running!"
-
-def run_web():
-    app_web.run(host="0.0.0.0", port=10000)
-
-def keep_alive():
-    t = Thread(target=run_web)
-    t.start()
-
-# =========================
-# START COMMAND
-# =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = (
-        "👋 Welcome to Downloader Bot\n\n"
-        "Send a link from:\n"
-        "• YouTube\n"
-        "• TikTok\n"
-        "• Facebook\n\n"
-        "📥 I will download the video for you."
+        "👋 Welcome to Professional Downloader Bot\n\n"
+        "Supported Platforms:\n"
+        "🎬 YouTube\n"
+        "📱 TikTok\n"
+        "📘 Facebook\n"
+        "📷 Instagram\n\n"
+        "📥 Send me a video link to download."
     )
 
     await update.message.reply_text(text)
 
-# =========================
-# DOWNLOAD FUNCTION
-# =========================
-async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     url = update.message.text
 
-    msg = await update.message.reply_text("⏳ Processing...")
+    msg = await update.message.reply_text("⏳ Processing download...")
 
     try:
 
-        ydl_opts = {
-            'outtmpl': f'{DOWNLOAD_FOLDER}/%(title)s.%(ext)s',
-            'format': 'best',
-            'cookiefile': 'cookies.txt'
-        }
+        file_path, title = download_video(url)
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            file_path = ydl.prepare_filename(info)
+        await msg.edit_text("📤 Uploading video...")
 
-        await msg.edit_text("📤 Uploading...")
-
-        await update.message.reply_video(video=open(file_path, "rb"))
+        await update.message.reply_video(
+            video=open(file_path, "rb"),
+            caption=f"✅ {title}"
+        )
 
         os.remove(file_path)
 
         await msg.delete()
 
     except Exception as e:
-        await msg.edit_text(f"❌ Error: {e}")
 
-# =========================
-# MAIN
-# =========================
+        await msg.edit_text(f"❌ Error:\n{str(e)}")
+
+
 def main():
 
     keep_alive()
@@ -89,11 +55,12 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
 
-    print("🤖 Bot started...")
+    print("🤖 Bot running...")
 
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
