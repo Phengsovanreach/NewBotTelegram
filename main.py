@@ -1,55 +1,34 @@
 import os
-import asyncio
-from flask import Flask
-from threading import Thread
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 import yt_dlp
-import telegram
 
-# ---------------------- RENDER KEEP-ALIVE ----------------------
-# Render's free tier requires a web server to stay "awake"
-web_app = Flask('')
+# ---------------- CONFIG ----------------
+TOKEN = "8237446590:AAFUWWuMiPGmuAnK0n3oYxDzNlO08hqKPp0"
 
-@web_app.route('/')
-def home():
-    return "Bot is alive!"
-
-def run_web_server():
-    # Render automatically provides a PORT environment variable
-    port = int(os.environ.get("PORT", 8080))
-    web_app.run(host='0.0.0.0', port=port)
-
-def keep_alive():
-    t = Thread(target=run_web_server)
-    t.daemon = True
-    t.start()
-
-# ---------------------- CONFIG ----------------------
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-MAX_FILE_SIZE = 500 * 1024 * 1024  # Render free has limited RAM (512MB)
 
-async def safe_edit(message, text):
-    try:
-        await message.edit_text(text)
-    except Exception:
-        pass
+# ---------------- COMMAND ----------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🤖 Hello!\n"
+        "Send me a video link (YouTube / TikTok / Facebook)."
+    )
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 I am running on Render! Send me a link.")
+# ---------------- DOWNLOAD FUNCTION ----------------
+async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text
-    status_msg = await update.message.reply_text("⬇️ Downloading...")
+    status = await update.message.reply_text("⬇️ Downloading...")
+
     filename = None
 
     ydl_opts = {
         "outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s",
-        "format": "best", # 'best' avoids heavy FFmpeg merging which crashes low-RAM servers
+        "format": "best",
         "quiet": True,
-        "restrictfilenames": True,
+        "restrictfilenames": True
     }
 
     try:
@@ -57,23 +36,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
 
-        with open(filename, "rb") as video_file:
-            await update.message.reply_video(video=video_file, caption="✅ Success!")
+        await status.edit_text("📤 Uploading...")
+
+        with open(filename, "rb") as video:
+            await update.message.reply_video(video=video, caption="✅ Done!")
+
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        await update.message.reply_text(f"❌ Error:\n{e}")
+
     finally:
         if filename and os.path.exists(filename):
             os.remove(filename)
-        await status_msg.delete()
 
-# ---------------------- MAIN ----------------------
+        await status.delete()
+
+# ---------------- MAIN ----------------
+def main():
+
+    print("🤖 Bot started...")
+
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
+
+    app.run_polling()
+
 if __name__ == "__main__":
-    if not TOKEN:
-        print("❌ Error: TELEGRAM_BOT_TOKEN not found!")
-    else:
-        keep_alive()  # <--- This starts the web server for Render
-        print("🤖 Bot is starting...")
-        app = ApplicationBuilder().token(TOKEN).build()
-        app.add_handler(CommandHandler("start", start_command))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        app.run_polling()
+    main()
